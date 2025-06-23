@@ -28,11 +28,12 @@ import { UriEx } from '../common/uri/uriUtils';
 import { ParseFileResults, ParseOptions, Parser, ParserOutput } from '../parser/parser';
 import { entries } from '@detachhead/ts-helpers/dist/functions/misc';
 import { DiagnosticRule } from '../common/diagnosticRules';
-import { SemanticTokenItem, SemanticTokensWalker } from '../analyzer/semanticTokensWalker';
+import { SemanticTokensWalker, SemanticTokenItem } from '../analyzer/semanticTokensWalker';
 import { TypeInlayHintsItemType, TypeInlayHintsWalker } from '../analyzer/typeInlayHintsWalker';
 import { Range } from 'vscode-languageserver-types';
 import { ServiceProvider } from '../common/serviceProvider';
 import { InlayHintSettings } from '../workspaceFactory';
+import { Token } from '../parser/tokenizerTypes';
 
 // This is a bit gross, but it's necessary to allow the fallback typeshed
 // directory to be located when running within the jest environment. This
@@ -152,8 +153,34 @@ export const semanticTokenizeSampleFile = (fileName: string): SemanticTokenItem[
     const program = createProgram();
     const fileUri = UriEx.file(resolveSampleFilePath(path.join('semantic_highlighting', fileName)));
     program.setTrackedFiles([fileUri]);
-    const walker = new SemanticTokensWalker(program.evaluator!);
-    walker.walk(program.getParseResults(fileUri)!.parserOutput.parseTree);
+    
+    const parseResults = program.getParseResults(fileUri)!;
+    const tokens = parseResults.tokenizerOutput.tokens;
+    const tokensArray: Token[] = [];
+    for (let i = 0; i < tokens.count; i++) {
+        tokensArray.push(tokens.getItemAt(i));
+    }
+    
+    const walker = new SemanticTokensWalker(program.evaluator!, tokensArray, false); // false = semantic tokens only
+    walker.walk(parseResults.parserOutput.parseTree);
+    program.dispose();
+    return walker.items;
+};
+
+export const comprehensiveSemanticTokenizeSampleFile = (fileName: string): SemanticTokenItem[] => {
+    const program = createProgram();
+    const fileUri = UriEx.file(resolveSampleFilePath(path.join('semantic_highlighting', fileName)));
+    program.setTrackedFiles([fileUri]);
+    
+    const parseResults = program.getParseResults(fileUri)!;
+    const tokens = parseResults.tokenizerOutput.tokens;
+    const tokensArray: Token[] = [];
+    for (let i = 0; i < tokens.count; i++) {
+        tokensArray.push(tokens.getItemAt(i));
+    }
+    
+    const walker = new SemanticTokensWalker(program.evaluator!, tokensArray, true); // true = comprehensive tokens
+    walker.walk(parseResults.parserOutput.parseTree);
     program.dispose();
     return walker.items;
 };

@@ -11,6 +11,7 @@ import { convertOffsetsToRange } from '../common/positionUtils';
 import { Uri } from '../common/uri/uri';
 import { ParseFileResults } from '../parser/parser';
 import { SemanticTokensWalker } from '../analyzer/semanticTokensWalker';
+import { Token } from '../parser/tokenizerTypes';
 
 export enum CustomSemanticTokenTypes {
     selfParameter = 'selfParameter',
@@ -33,6 +34,18 @@ export const tokenTypes: string[] = [
     SemanticTokenTypes.variable,
     SemanticTokenTypes.type,
     SemanticTokenTypes.keyword,
+    SemanticTokenTypes.operator,
+    SemanticTokenTypes.string,
+    SemanticTokenTypes.number,
+    SemanticTokenTypes.comment,
+    SemanticTokenTypes.regexp,
+    SemanticTokenTypes.enumMember,
+    SemanticTokenTypes.struct,
+    SemanticTokenTypes.event,
+    SemanticTokenTypes.interface,
+    SemanticTokenTypes.enum,
+    SemanticTokenTypes.macro,
+    SemanticTokenTypes.label,
     CustomSemanticTokenTypes.selfParameter,
     CustomSemanticTokenTypes.clsParameter,
 ];
@@ -43,6 +56,11 @@ export const tokenModifiers: string[] = [
     SemanticTokenModifiers.async,
     SemanticTokenModifiers.readonly,
     SemanticTokenModifiers.defaultLibrary,
+    SemanticTokenModifiers.modification,
+    SemanticTokenModifiers.static,
+    SemanticTokenModifiers.abstract,
+    SemanticTokenModifiers.deprecated,
+    SemanticTokenModifiers.documentation,
     CustomSemanticTokenModifiers.builtin,
 ];
 
@@ -84,12 +102,22 @@ export class SemanticTokensProvider {
             return builder.build();
         }
 
-        const walker = new SemanticTokensWalker(this._program.evaluator!);
+        const tokens = this._parseResults.tokenizerOutput.tokens;
+        const tokensArray: Token[] = [];
+        for (let i = 0; i < tokens.count; i++) {
+            tokensArray.push(tokens.getItemAt(i));
+        }
+
+        const walker = new SemanticTokensWalker(
+            this._program.evaluator!,
+            tokensArray,
+            true // true = comprehensive tokens (include syntax tokens)
+        );
+        
         walker.walk(this._parseResults.parserOutput.parseTree);
 
         throwIfCancellationRequested(this._token);
 
-        // seems that tokens are lost if they show up out of order. TODO: figure out if there's a proper way to fix this
         walker.items.sort((a, b) => a.start - b.start);
 
         for (const item of walker.items) {

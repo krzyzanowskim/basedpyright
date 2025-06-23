@@ -32,6 +32,7 @@ import { getScopeForNode } from './scopeUtils';
 import { ScopeType } from './scope';
 import { assertNever } from '../common/debug';
 import { getDeclaration } from './analyzerNodeInfo';
+import { Token, TokenType, OperatorType, KeywordType, OperatorToken } from '../parser/tokenizerTypes';
 
 export type SemanticTokenItem = {
     type: string;
@@ -43,10 +44,122 @@ export type SemanticTokenItem = {
 export class SemanticTokensWalker extends ParseTreeWalker {
     builtinModules = new Set<string>(['builtins', '__builtins__']);
     items: SemanticTokenItem[] = [];
+    private _processedSyntaxTokens = new Set<string>(); // Track processed syntax token positions
 
-    constructor(private readonly _evaluator?: TypeEvaluator) {
+    constructor(
+        private readonly _evaluator?: TypeEvaluator, 
+        private readonly _tokens?: Token[],
+        private readonly _includeSyntaxTokens: boolean = true
+    ) {
         super();
     }
+
+    override walk(node: any): void {
+        // First process all syntax tokens
+        if (this._tokens && this._includeSyntaxTokens) {
+            this._processSyntaxTokens();
+        }
+        // Then process semantic tokens by walking the tree
+        super.walk(node);
+    }
+
+    private _processSyntaxTokens(): void {
+        if (!this._tokens) return;
+
+        for (const token of this._tokens) {
+            // Skip tokens that will be processed semantically
+            if (this._shouldSkipToken(token)) {
+                continue;
+            }
+
+            this._processToken(token);
+        }
+    }
+
+    private _shouldSkipToken(token: Token): boolean {
+        // Skip identifiers, they're handled by semantic analysis
+        if (token.type === TokenType.Identifier) {
+            return true;
+        }
+        // Skip certain tokens that don't need highlighting
+        if (token.type === TokenType.Invalid || 
+            token.type === TokenType.EndOfStream ||
+            token.type === TokenType.NewLine ||
+            token.type === TokenType.Indent ||
+            token.type === TokenType.Dedent) {
+            return true;
+        }
+        return false;
+    }
+
+    private _processToken(token: Token): void {
+        let tokenType: string | undefined;
+        let modifiers: string[] = [];
+
+        switch (token.type) {
+            case TokenType.Keyword:
+                tokenType = SemanticTokenTypes.keyword;
+                break;
+            case TokenType.Operator:
+                tokenType = SemanticTokenTypes.operator;
+                if (this._isAssignmentOperator(token)) {
+                    modifiers.push(SemanticTokenModifiers.modification);
+                }
+                break;
+            case TokenType.String:
+                tokenType = SemanticTokenTypes.string;
+                break;
+            case TokenType.FStringStart:
+            case TokenType.FStringMiddle:
+            case TokenType.FStringEnd:
+                tokenType = SemanticTokenTypes.string;
+                break;
+            case TokenType.Number:
+                tokenType = SemanticTokenTypes.number;
+                break;
+            default:
+                // Process comments if they exist on the token
+                if (token.comments) {
+                    for (const comment of token.comments) {
+                        this._addItem(comment.start, comment.length, SemanticTokenTypes.comment, []);
+                    }
+                }
+                return; // Skip other token types
+        }
+
+        if (tokenType) {
+            this._addItem(token.start, token.length, tokenType, modifiers);
+        }
+    }
+
+    private _isAssignmentOperator(token: Token): boolean {
+        if (token.type !== TokenType.Operator) return false;
+        const operatorToken = token as OperatorToken;
+        const assignmentOps = [
+            OperatorType.Assign,
+            OperatorType.AddEqual,
+            OperatorType.SubtractEqual,
+            OperatorType.MultiplyEqual,
+            OperatorType.DivideEqual,
+            OperatorType.ModEqual,
+            OperatorType.PowerEqual,
+            OperatorType.MatrixMultiplyEqual,
+            OperatorType.BitwiseAndEqual,
+            OperatorType.BitwiseOrEqual,
+            OperatorType.BitwiseXorEqual,
+            OperatorType.LeftShiftEqual,
+            OperatorType.RightShiftEqual,
+            OperatorType.FloorDivideEqual,
+        ];
+        return assignmentOps.includes(operatorToken.operatorType);
+    }
+
+    private _isDocstring(token: Token): boolean {
+        // Simple heuristic: multi-line strings or strings at the beginning of functions/classes
+        // This is a simplified check - a more complete implementation would examine the AST context
+        return token.type === TokenType.String && token.length > 10;
+    }
+
     override visitClass(node: ClassNode): boolean {
         this._addItemForNameNode(node.d.name, SemanticTokenTypes.class, [SemanticTokenModifiers.definition]);
         return super.visitClass(node);
@@ -296,6 +409,17 @@ export class SemanticTokensWalker extends ParseTreeWalker {
         this._addItem(node.d.token.start, node.d.token.length, type, modifiers);
 
     private _addItem(start: number, length: number, type: string, modifiers: string[]) {
+        // Only deduplicate syntax tokens (keywords, operators, strings, numbers, comments)
+        const isSyntaxToken = ['keyword', 'operator', 'string', 'number', 'comment'].includes(type);
+        
+        if (isSyntaxToken) {
+            const key = `${start}:${length}:${type}`;
+            if (this._processedSyntaxTokens.has(key)) {
+                return;
+            }
+            this._processedSyntaxTokens.add(key);
+        }
+        
         this.items.push({ type, modifiers, start, length });
     }
 }

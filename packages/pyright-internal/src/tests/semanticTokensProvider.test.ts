@@ -1,4 +1,4 @@
-import { semanticTokenizeSampleFile } from './testUtils';
+import { semanticTokenizeSampleFile, comprehensiveSemanticTokenizeSampleFile } from './testUtils';
 
 //TODO: these tests have different start positions in ci on windows, i assume because of crlf moment
 if (process.platform !== 'win32' || !process.env['CI']) {
@@ -110,7 +110,7 @@ if (process.platform !== 'win32' || !process.env['CI']) {
             { type: 'type', modifiers: [], start: 142, length: 5 }, // Never
             { type: 'variable', modifiers: [], start: 148, length: 5 }, // value
             { type: 'type', modifiers: [], start: 155, length: 4 }, // Type
-            { type: 'function', modifiers: ['definition'], start: 169, length: 8 }, // inferred
+            { type: 'function', modifiers: ['definition'], start: 169, length: 8 },
             { type: 'function', modifiers: [], start: 169, length: 8 }, // inferred
             { type: 'variable', modifiers: [], start: 185, length: 5 }, // value
             { type: 'function', modifiers: ['defaultLibrary', 'builtin'], start: 207, length: 10 }, // isinstance
@@ -311,6 +311,29 @@ if (process.platform !== 'win32' || !process.env['CI']) {
             { type: 'variable', modifiers: [], start: 81, length: 3 }, // bar
             { type: 'function', modifiers: [], start: 87, length: 1 }, // f
         ]);
+    });
+
+    test('keywords and syntax tokens', () => {
+        const result = comprehensiveSemanticTokenizeSampleFile('keywords.py');
+        
+        // Check that we have keywords, operators, strings, and numbers
+        const hasKeywords = result.some(item => item.type === 'keyword');
+        const hasOperators = result.some(item => item.type === 'operator');
+        const hasStrings = result.some(item => item.type === 'string');
+        const hasNumbers = result.some(item => item.type === 'number');
+        
+        expect(hasKeywords).toBe(true);
+        expect(hasOperators).toBe(true);
+        expect(hasStrings).toBe(true);
+        expect(hasNumbers).toBe(true);
+        
+        // Check that syntax tokens don't have duplicates (but semantic tokens can)
+        const syntaxTokens = result.filter(item => ['keyword', 'operator', 'string', 'number', 'comment'].includes(item.type));
+        const uniqueSyntaxTokens = new Set(syntaxTokens.map(item => `${item.start}:${item.length}:${item.type}`));
+        expect(uniqueSyntaxTokens.size).toBe(syntaxTokens.length);
+        
+        // Check that we have a reasonable number of tokens
+        expect(result.length).toBeGreaterThan(20);
     });
 } else {
     // prevent jest from failing because no tests were found
